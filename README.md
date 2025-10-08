@@ -2,8 +2,6 @@ This repository provides a FastAPI-based service that maps **MLflow run metadata
 It allows the integration of ML experiment tracking (via MLflow) with TMF-compatible systems and APIs.
 
 
-MLflow-to-TMF-AIM-Mapper/
-│
 ├── mlflow_to_tmf.py # Main logic for mapping MLflow to TMF
 ├── mlflow_to_tmf_api.py # FastAPI routes for mapping
 ├── server_tmf.py # FastAPI server bootstrap
