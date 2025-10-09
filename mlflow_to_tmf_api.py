@@ -1,10 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
 from mlflow_to_tmf import dynamic_mlflow_to_tmf
 
-import mlflow
-mlflow.set_tracking_uri("file:///home/ubuntu/mlflow/mlruns")
 app = FastAPI()
 
 class MapRequest(BaseModel):
