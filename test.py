@@ -41,7 +41,7 @@ with mlflow.start_run() as run:
     signature = mlflow.models.infer_signature(X_test, y_pred)
     mlflow.sklearn.log_model(
         clf,
-        artifact_path="random_forest_model",
+        name="random_forest_model",  
         input_example=input_example,
         signature=signature
     )
