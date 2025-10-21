@@ -17,6 +17,7 @@ def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
     info = run["info"]
     data = run["data"]
 
+    # Convert lists to dicts
     def list_to_dict(items):
         if isinstance(items, list):
             return {item["key"]: item["value"] for item in items}
@@ -25,15 +26,17 @@ def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
     params = list_to_dict(data.get("params", {}))
     metrics = list_to_dict(data.get("metrics", {}))
     tags = list_to_dict(data.get("tags", {}))
-    
-    # Get version from MLflow tags, fallback to "1.0" if not present
+
+    # Use version from MLflow tags, fallback to "1.0"
     version_value = tags.get("version", "1.0")
 
+    # Helper for timestamps
     def format_timestamp(timestamp_ms):
         if timestamp_ms:
             return datetime.fromtimestamp(int(timestamp_ms) / 1000).isoformat()
         return datetime.now().isoformat()
 
+    # --- TMF-Compliant JSON Mapping ---
     tmf_json = {
         "id": str(uuid.uuid4()),
         "href": f"https://mycsp.com:8080/tmfapi/serviceCatalogManagement/v4/serviceSpecification/{run_id}",
@@ -51,44 +54,60 @@ def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
         "lifecycleStatus": tags.get("lifecycleStatus", "Active"),
         "isBundle": False,
 
-        # --- TMF 915 Defined Fields ---
+        # --- Model Development History ---
         "modelSpecificationHistory": {
             "description": "Model development history and version as preserved in MLflow",
             "url": f"{tracking_uri}/#/experiments/{info.get('experiment_id')}/runs/{run_id}"
         },
 
+        # --- Inherited Model ---
         "inheritedModel": {
-            "description": "Reference to the base model used (if transfer learning applied)",
-            "url": tags.get("inheritedModel_url", "https://link.to.model.repo/modelID=base123")
+            "description": tags.get(
+                "inheritedModel_description",
+                "No parent model — this model was trained from scratch in MLflow"
+            ),
+            "url": tags.get("inheritedModel_url", "")
         },
 
+        # --- Training Data ---
         "modelTrainingData": {
             "description": "Dataset used to train the model",
-            "url": f"{tracking_uri}/#/experiments/{info.get('experiment_id')}/runs/{run_id}/artifacts/dataset"
+            "url": f"{tracking_uri}/#/experiments/{info.get('experiment_id')}/runs/{run_id}/artifacts/dataset",
+            "mimeType": "text/csv"
         },
 
+        # --- Evaluation Data ---
         "modelEvaluationData": {
             "description": "Evaluation dataset and metrics preserved in MLflow",
             "url": f"{tracking_uri}/#/experiments/{info.get('experiment_id')}/runs/{run_id}/artifacts/evaluation"
         },
 
+        # --- Model Datasheet ---
         "modelDataSheet": {
             "description": "Digital document describing model characteristics",
-            "url": f"{info.get('artifact_uri')}/datasheet",
+            "url": f"{tracking_uri}/#/experiments/{info.get('experiment_id')}/runs/{run_id}/artifacts/datasheet",
             "mimeType": "application/json"
         },
 
+        # --- Deployment Record ---
         "deploymentRecord": {
-            "description": "Deployment approval or rollout record for this model",
-            "url": tags.get("deploymentRecord_url", "https://link.to.model.repo/deploymentRecordID=57432.1")
+            "description": tags.get(
+                "deploymentRecord_description",
+                "Model not yet deployed — deployment record pending"
+            ),
+            "url": tags.get("deploymentRecord_url", "")
         },
 
+        # --- Contract & Version History ---
         "modelContractVersionHistory": {
-            "description": "Model contract and version history",
-            "url": tags.get("contractHistory_url", "https://gitlab.server/modelcontracts/57432/blob/master/contract")
+            "description": tags.get(
+                "contractHistory_description",
+                "No formal model contract defined — managed internally by MLflow run history"
+            ),
+            "url": tags.get("contractHistory_url", "")
         },
 
-        # --- Characteristics ---
+        # --- Model Parameters (Characteristics) ---
         "serviceSpecCharacteristic": [
             {
                 "name": param_key,
@@ -125,16 +144,17 @@ def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
                 "href": f"https://mycsp.com:8080/tmf-api/partyManagement/v4/individual/{info.get('user_id', 'unknown')}",
                 "id": info.get("user_id", "unknown"),
                 "name": info.get("user_id", "Unknown"),
-                "role": "Supplier"
+                "role": "ModelOwner"
             }
         ],
 
+        # --- Schema Metadata ---
         "targetServiceSchema": {
             "@type": "AIModel",
             "@schemaLocation": "https://mycsp.com:8080/tmf-api/schema/AIM/AIModel.schema.json"
         },
 
-        # --- MLflow Metadata (custom extension) ---
+        # --- MLflow-Specific Metadata (Extension) ---
         "mlflowMetadata": {
             "runId": run_id,
             "experimentId": info.get("experiment_id"),
@@ -147,6 +167,7 @@ def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
         },
     }
 
+    # Remove empty fields
     return {k: v for k, v in tmf_json.items() if v is not None}
 
 
