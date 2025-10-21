@@ -43,3 +43,26 @@ curl -X POST "http://127.0.0.1:8000/map" \
          }'
 
 This returns a TMF-compliant JSON object that can be validated against the TMF915 schema or posted to your TMF AIM API.
+
+6️⃣ Example Output
+
+{
+  "id": "f78cceea-1e33-448d-880b-425799515516",
+  "@type": "AIModelSpecification",
+  "name": "classy-shark-586",
+  "version": "1.0",
+  "modelTrainingData": {
+    "description": "Dataset used to train the model",
+    "url": "http://127.0.0.1:5000/#/experiments/.../artifacts/dataset",
+    "mimeType": "text/csv"
+  },
+  "mlflowMetadata": {
+    "metrics": {"accuracy": 1.0},
+    "params": {"n_estimators": "100", "max_depth": "5"}
+  }
+}
+
+
+7️⃣ Validate JSON in Swagger UI (TMF Server)
+
+uvicorn server_tmf:app --port 8000
