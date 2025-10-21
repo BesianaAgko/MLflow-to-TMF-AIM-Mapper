@@ -25,6 +25,9 @@ def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
     params = list_to_dict(data.get("params", {}))
     metrics = list_to_dict(data.get("metrics", {}))
     tags = list_to_dict(data.get("tags", {}))
+    
+    # Get version from MLflow tags, fallback to "1.0" if not present
+    version_value = tags.get("version", "1.0")
 
     def format_timestamp(timestamp_ms):
         if timestamp_ms:
@@ -39,7 +42,7 @@ def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
         "@schemaLocation": "https://mycsp.com:8080/tmf-api/schema/AIM/AIModelSpecification.schema.json",
         "name": tags.get("mlflow.runName", f"MLflow Run {run_id}"),
         "description": tags.get("description", f"AI Model specification from MLflow run {run_id}"),
-        "version": tags.get("version", "1.0"),
+        "version": version_value,
         "validFor": {
             "startDateTime": format_timestamp(info.get("start_time")),
             "endDateTime": format_timestamp(info.get("end_time")) if info.get("end_time") else None,
@@ -61,12 +64,12 @@ def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
 
         "modelTrainingData": {
             "description": "Dataset used to train the model",
-            "url": f"{info.get('artifact_uri')}/dataset"
+            "url": f"{tracking_uri}/#/experiments/{info.get('experiment_id')}/runs/{run_id}/artifacts/dataset"
         },
 
         "modelEvaluationData": {
             "description": "Evaluation dataset and metrics preserved in MLflow",
-            "url": f"{info.get('artifact_uri')}/evaluation"
+            "url": f"{tracking_uri}/#/experiments/{info.get('experiment_id')}/runs/{run_id}/artifacts/evaluation"
         },
 
         "modelDataSheet": {
