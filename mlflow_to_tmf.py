@@ -1,28 +1,34 @@
-from mlflow.tracking import MlflowClient
+import requests
 from datetime import datetime
 import uuid
 
-def dynamic_mlflow_to_tmf(run_id):
-    client = MlflowClient()
-    run = client.get_run(run_id)
-    params = run.data.params
-    metrics = run.data.metrics
-    tags = run.data.tags
 
-    # Δυναμικά sections
-    tag_sections = {}
-    for tag_key, tag_value in tags.items():
-        if "_" in tag_key:
-            prefix = tag_key.split("_")[0]
-            clean_key = tag_key.replace(f"{prefix}_", "")
-            if prefix not in tag_sections:
-                tag_sections[prefix] = {}
-            tag_sections[prefix][clean_key] = tag_value
+def get_run_via_rest(run_id, tracking_uri="http://127.0.0.1:5000"):
+    """Fetch run info dynamically from the MLflow Tracking Server REST API."""
+    url = f"{tracking_uri}/api/2.0/mlflow/runs/get?run_id={run_id}"
+    response = requests.get(url)
+    response.raise_for_status()
+    return response.json()["run"]
 
-    # Helper function για timestamps
+
+def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
+    """Convert MLflow run → TMF-compliant JSON dynamically via MLflow REST API."""
+    run = get_run_via_rest(run_id, tracking_uri)
+    info = run["info"]
+    data = run["data"]
+
+    def list_to_dict(items):
+        if isinstance(items, list):
+            return {item["key"]: item["value"] for item in items}
+        return items
+
+    params = list_to_dict(data.get("params", {}))
+    metrics = list_to_dict(data.get("metrics", {}))
+    tags = list_to_dict(data.get("tags", {}))
+
     def format_timestamp(timestamp_ms):
         if timestamp_ms:
-            return datetime.fromtimestamp(timestamp_ms / 1000).isoformat()
+            return datetime.fromtimestamp(int(timestamp_ms) / 1000).isoformat()
         return datetime.now().isoformat()
 
     tmf_json = {
@@ -35,113 +41,109 @@ def dynamic_mlflow_to_tmf(run_id):
         "description": tags.get("description", f"AI Model specification from MLflow run {run_id}"),
         "version": tags.get("version", "1.0"),
         "validFor": {
-            "startDateTime": format_timestamp(run.info.start_time),
-            "endDateTime": format_timestamp(run.info.end_time) if run.info.end_time else None
+            "startDateTime": format_timestamp(info.get("start_time")),
+            "endDateTime": format_timestamp(info.get("end_time")) if info.get("end_time") else None,
         },
-        "lastUpdate": format_timestamp(run.info.end_time or run.info.start_time),
+        "lastUpdate": format_timestamp(info.get("end_time") or info.get("start_time")),
         "lifecycleStatus": tags.get("lifecycleStatus", "Active"),
-        "isBundle": tags.get("isBundle", "false").lower() == "true",
-        
-        # Model-specific TMF fields
-        "modelSpecificationHistory": {
-            "description": "Model development history preserved in MLflow",
-            "url": f"{tags.get('mlflow_tracking_uri', 'http://localhost:5000')}/#/experiments/{run.info.experiment_id}/runs/{run_id}"
-        },
-        "inheritedModel": {
-            "description": tags.get("inheritedModel_description", "Reference to parent model used via transfer learning"),
-            "url": tags.get("inheritedModel_url", "")
-        } if tags.get("inheritedModel_url") else None,
-        "modelTrainingData": {
-            "description": tags.get("trainingData_description", "Repository link for training data"),
-            "url": tags.get("training_dataSource", "")
-        } if tags.get("training_dataSource") else None,
-        "modelEvaluationData": {
-            "description": tags.get("evaluationData_description", "Repository link for evaluation data"),
-            "url": tags.get("evaluation_dataSource", "")
-        } if tags.get("evaluation_dataSource") else None,
-        "modelDataSheet": {
-            "description": tags.get("dataSheet_description", "Digital document describing this model"),
-            "url": tags.get("dataSheet_url", ""),
-            "mimeType": tags.get("dataSheet_mimeType", "application/json")
-        } if tags.get("dataSheet_url") else None,
-        "deploymentRecord": {
-            "description": tags.get("deploymentRecord_description", "Deployment approval record for this model"),
-            "url": tags.get("deploymentRecord_url", "")
-        } if tags.get("deploymentRecord_url") else None,
-        "modelContractVersionHistory": {
-            "description": tags.get("contractHistory_description", "Model contract and version history"),
-            "url": tags.get("contractHistory_url", "")
-        } if tags.get("contractHistory_url") else None,
+        "isBundle": False,
 
-        # Service characteristics από MLflow parameters
+        # --- TMF 915 Defined Fields ---
+        "modelSpecificationHistory": {
+            "description": "Model development history and version as preserved in MLflow",
+            "url": f"{tracking_uri}/#/experiments/{info.get('experiment_id')}/runs/{run_id}"
+        },
+
+        "inheritedModel": {
+            "description": "Reference to the base model used (if transfer learning applied)",
+            "url": tags.get("inheritedModel_url", "https://link.to.model.repo/modelID=base123")
+        },
+
+        "modelTrainingData": {
+            "description": "Dataset used to train the model",
+            "url": f"{info.get('artifact_uri')}/dataset"
+        },
+
+        "modelEvaluationData": {
+            "description": "Evaluation dataset and metrics preserved in MLflow",
+            "url": f"{info.get('artifact_uri')}/evaluation"
+        },
+
+        "modelDataSheet": {
+            "description": "Digital document describing model characteristics",
+            "url": f"{info.get('artifact_uri')}/datasheet",
+            "mimeType": "application/json"
+        },
+
+        "deploymentRecord": {
+            "description": "Deployment approval or rollout record for this model",
+            "url": tags.get("deploymentRecord_url", "https://link.to.model.repo/deploymentRecordID=57432.1")
+        },
+
+        "modelContractVersionHistory": {
+            "description": "Model contract and version history",
+            "url": tags.get("contractHistory_url", "https://gitlab.server/modelcontracts/57432/blob/master/contract")
+        },
+
+        # --- Characteristics ---
         "serviceSpecCharacteristic": [
             {
                 "name": param_key,
-                "description": tags.get(f"{param_key}_description", f"Parameter {param_key} from MLflow"),
-                "valueType": tags.get(f"{param_key}_valueType", "string"),
-                "configurable": tags.get(f"{param_key}_configurable", "false").lower() == "true",
+                "description": f"Parameter {param_key} from MLflow",
+                "valueType": "string",
+                "configurable": False,
                 "validFor": {
-                    "startDateTime": format_timestamp(run.info.start_time),
-                    "endDateTime": format_timestamp(run.info.end_time) if run.info.end_time else None
+                    "startDateTime": format_timestamp(info.get("start_time")),
+                    "endDateTime": format_timestamp(info.get("end_time")),
                 },
-                "minCardinality": int(tags.get(f"{param_key}_minCardinality", "0")),
-                "maxCardinality": int(tags.get(f"{param_key}_maxCardinality", "1")),
-                "isUnique": tags.get(f"{param_key}_isUnique", "true").lower() == "true",
-                "regex": tags.get(f"{param_key}_regex", ""),
-                "extensible": tags.get(f"{param_key}_extensible", "false").lower() == "true",
+                "minCardinality": 0,
+                "maxCardinality": 1,
+                "isUnique": True,
+                "regex": "",
+                "extensible": False,
                 "serviceSpecCharacteristicValue": [
                     {
-                        "valueType": tags.get(f"{param_key}_valueType", "string"),
+                        "valueType": "string",
                         "isDefault": True,
                         "value": param_value,
                         "validFor": {
-                            "startDateTime": format_timestamp(run.info.start_time),
-                            "endDateTime": format_timestamp(run.info.end_time) if run.info.end_time else None
-                        }
+                            "startDateTime": format_timestamp(info.get("start_time")),
+                            "endDateTime": format_timestamp(info.get("end_time")),
+                        },
                     }
-                ]
-            } for param_key, param_value in params.items()
+                ],
+            }
+            for param_key, param_value in params.items()
         ],
 
-        # Related parties
+        # --- Related Party ---
         "relatedParty": [
             {
-                "href": tags.get("owner_href", f"https://mycsp.com:8080/tmf-api/partyManagement/v4/individual/{tags.get('owner_id', 'unknown')}"),
-                "id": tags.get("owner_id", "unknown"),
-                "name": tags.get("owner_name", run.info.user_id or "Unknown"),
-                "role": tags.get("owner_role", "ModelOwner")
+                "href": f"https://mycsp.com:8080/tmf-api/partyManagement/v4/individual/{info.get('user_id', 'unknown')}",
+                "id": info.get("user_id", "unknown"),
+                "name": info.get("user_id", "Unknown"),
+                "role": "Supplier"
             }
         ],
 
-        # Target service schema
         "targetServiceSchema": {
             "@type": "AIModel",
             "@schemaLocation": "https://mycsp.com:8080/tmf-api/schema/AIM/AIModel.schema.json"
         },
 
-        # MLflow specific metadata (custom extension)
+        # --- MLflow Metadata (custom extension) ---
         "mlflowMetadata": {
             "runId": run_id,
-            "experimentId": run.info.experiment_id,
-            "artifactUri": run.info.artifact_uri,
-            "status": run.info.status,
-            "userId": run.info.user_id,
+            "experimentId": info.get("experiment_id"),
+            "artifactUri": info.get("artifact_uri"),
+            "status": info.get("status"),
+            "userId": info.get("user_id"),
             "metrics": metrics,
-            "allTags": tags
-        }
+            "params": params,
+            "tags": tags,
+        },
     }
-    
-   
+
     return {k: v for k, v in tmf_json.items() if v is not None}
 
-# Test function
-def test_conversion():
-    
-    run_id = "your_run_id_here"
-    result = dynamic_mlflow_to_tmf(run_id)
-    import json
-    print(json.dumps(result, indent=2))
-
-if __name__ == "__main__":
-    test_conversion()
 
