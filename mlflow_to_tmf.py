@@ -1,14 +1,6 @@
-import requests
 from datetime import datetime
 import uuid
-
-
-def get_run_via_rest(run_id, tracking_uri="http://127.0.0.1:5000"):
-    """Fetch run info dynamically from the MLflow Tracking Server REST API."""
-    url = f"{tracking_uri}/api/2.0/mlflow/runs/get?run_id={run_id}"
-    response = requests.get(url)
-    response.raise_for_status()
-    return response.json()["run"]
+from mlflow_to_tmf_api import get_run_via_rest
 
 
 def dynamic_mlflow_to_tmf(run_id, tracking_uri="http://127.0.0.1:5000"):
